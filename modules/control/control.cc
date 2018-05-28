@@ -34,15 +34,14 @@ namespace control {
 using apollo::canbus::Chassis;
 using apollo::common::ErrorCode;
 using apollo::common::Status;
+using apollo::common::VehicleStateProvider;
 using apollo::common::adapter::AdapterManager;
 using apollo::common::monitor::MonitorMessageItem;
 using apollo::common::time::Clock;
 using apollo::localization::LocalizationEstimate;
 using apollo::planning::ADCTrajectory;
 
-std::string Control::Name() const {
-  return FLAGS_control_node_name;
-}
+std::string Control::Name() const { return FLAGS_control_node_name; }
 
 Status Control::Init() {
   init_time_ = Clock::NowInSeconds();
@@ -75,6 +74,8 @@ Status Control::Init() {
 
   CHECK(AdapterManager::GetPad()) << "Pad is not initialized.";
 
+  CHECK(AdapterManager::GetMonitor()) << "Monitor is not initialized.";
+
   CHECK(AdapterManager::GetControlCommand())
       << "ControlCommand publisher is not initialized.";
 
@@ -89,7 +90,7 @@ Status Control::Start() {
   // need to sleep, because advertised channel is not ready immediately
   // simple test shows a short delay of 80 ms or so
   AINFO << "Control resetting vehicle state, sleeping for 1000 ms ...";
-  std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
   // should init_vehicle first, let car enter work status, then use status msg
   // trigger control
@@ -233,6 +234,8 @@ void Control::OnTimer(const ros::TimerEvent &) {
 
   const double time_diff_ms = (end_timestamp - start_timestamp) * 1000;
   control_command.mutable_latency_stats()->set_total_time_ms(time_diff_ms);
+  control_command.mutable_latency_stats()->set_total_time_exceeded(
+      time_diff_ms < control_conf_.control_period());
   ADEBUG << "control cycle time is: " << time_diff_ms << " ms.";
   status.Save(control_command.mutable_header()->mutable_status());
 
@@ -277,13 +280,7 @@ Status Control::CheckInput() {
     }
   }
 
-  // Add tempprary flag for test
-  if (FLAGS_use_relative_position) {
-    localization_.mutable_pose()->mutable_position()->set_x(0.0);
-    localization_.mutable_pose()->mutable_position()->set_y(0.0);
-    localization_.mutable_pose()->set_heading(0.0);
-  }
-  common::VehicleStateProvider::instance()->Update(localization_, chassis_);
+  VehicleStateProvider::instance()->Update(localization_, chassis_);
 
   return Status::OK();
 }
